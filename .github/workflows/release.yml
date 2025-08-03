@@ -1,0 +1,89 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test -v ./...
+    
+    - name: Run linter
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Build releases
+      run: |
+        mkdir -p build
+        
+        # Linux AMD64
+        GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=${GITHUB_REF#refs/tags/}" -o build/rewsr-linux-amd64 .
+        
+        # macOS AMD64
+        GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=${GITHUB_REF#refs/tags/}" -o build/rewsr-darwin-amd64 .
+        
+        # macOS ARM64
+        GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=${GITHUB_REF#refs/tags/}" -o build/rewsr-darwin-arm64 .
+        
+        # Windows AMD64
+        GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=${GITHUB_REF#refs/tags/}" -o build/rewsr-windows-amd64.exe .
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          build/rewsr-linux-amd64
+          build/rewsr-darwin-amd64
+          build/rewsr-darwin-arm64
+          build/rewsr-windows-amd64.exe
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
